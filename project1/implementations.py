@@ -33,7 +33,7 @@ def compute_gradient(y, tx, w):
     N = len(y)
     e = y - tx.dot(w)
     
-    gradient = -1/N * tx.T.dot(e)
+    gradient = -1/N * tx.T@e
     return gradient
 
 
@@ -60,11 +60,12 @@ def mean_square_error_gd(y, tx, initial_w, max_iters, gamma):
         gradient = compute_gradient(y, tx, w)
         loss = compute_mse(y, tx, w)
         w = w - gamma * gradient
-        print(
-            "GD iter. {bi}/{ti}: loss={l}".format(
-                bi=n_iter, ti=max_iters - 1, l=loss
+        if n_iter % 10 == 0:
+            print(
+                "GD iter. {bi}/{ti}: loss={l}".format(
+                    bi=n_iter, ti=max_iters - 1, l=loss
+                )
             )
-        )
 
     return w, loss
 
@@ -91,7 +92,7 @@ def batch_iter(y, tx, batch_size, num_batches=1, shuffle=True):
     for batch_num in range(num_batches):
         start_index = batch_num * batch_size
         end_index = min((batch_num + 1) * batch_size, data_size)
-        if start_index != end_index:
+        if start_index != end_index: # maybe <= end_index?
             yield shuffled_y[start_index:end_index], shuffled_tx[start_index:end_index]
 
 
@@ -107,14 +108,22 @@ def compute_stoch_gradient(y, tx, w):
     Returns:
         An array of shape (2, ) (same shape as w), containing the stochastic gradient of the loss at w.
     """
-    gradients=[]
-    for minibatch_y, minibatch_tx in batch_iter(y, tx, 1):
-        e = minibatch_y - minibatch_tx.dot(w)
-        gradient = -1/len(minibatch_y) * minibatch_tx.T.dot(e)
-        gradients.append(gradient)
-        mse = compute_mse(minibatch_y, minibatch_tx, w)
-    avg_gradient = np.mean(gradients, axis=0)
-    return avg_gradient,mse
+    # gradients=[]
+    # data_size = len(y)
+    # for minibatch_y, minibatch_tx in batch_iter(y, tx, batch_size, num_batches=data_size):
+    #     # e = minibatch_y - minibatch_tx.dot(w)
+    #     # gradient = -1/len(minibatch_y) * minibatch_tx.T.dot(e)  
+    #     gradient = compute_gradient(minibatch_y, minibatch_tx, w)
+    #     gradients.append(gradient)
+    #     mse = compute_mse(minibatch_y, minibatch_tx, w)
+    # avg_gradient = np.mean(gradients, axis=0)
+
+    data_size = len(y)
+    e = y - tx.dot(w)
+
+    gradient = -1/data_size * (tx.T @ e)
+
+    return gradient
  
 
 """ a function used to perform mse stochastic gradient descent."""
@@ -136,15 +145,16 @@ def stochastic_gradient_descent(y, tx, initial_w, batch_size, max_iters, gamma):
     w = initial_w
 
     for n_iter in range(max_iters):
-        gradient,loss = compute_stoch_gradient(y, tx, w)
-        w = w - gamma * gradient
-
+        loss = compute_mse(y, tx, w)
+        for batch_y, batch_tx in batch_iter(y, tx, batch_size):
+            stoch_grad = compute_stoch_gradient(batch_y, batch_tx, w)
+            w = w - gamma * stoch_grad
         print(
             "SGD iter. {bi}/{ti}: loss={l}, w0={w0}, w1={w1}".format(
                 bi=n_iter, ti=max_iters - 1, l=loss, w0=w[0], w1=w[1]
             )
         )
-    return w, loss
+    return loss, w
 
 
 """ a function used to perform least squares regression using normal equations."""
@@ -283,7 +293,7 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
     w = initial_w
     for n_iter in range(max_iters):
         gradient = log_likely_gradient(y, tx, w) + 2 * lambda_ * w
-        loss = log_likely_loss(y, tx, w) + lambda_ * np.squeeze(w.T.dot(w))
+        loss = log_likely_loss(y, tx, w)
         w = w - gamma * gradient
         print(
             "GD iter. {bi}/{ti}: loss={l}".format(
@@ -305,7 +315,7 @@ def add_bias(x):
     """
     return np.hstack((np.ones((x.shape[0], 1)), x))
 
-def fillna_with_mean(tx, threshold=0.5):
+def fillna_with_mean(tx, threshold=0.2):
     """
     replace the missing value with mean value of each feature, and remove features where over 50% of the data is NaN.     
     Args:
@@ -336,9 +346,8 @@ def standardize(tx):
     # for training set:
     mean = tx.mean(axis=0)
     std = tx.std(axis=0)
-    std[std == 0] = 1
-    x = np.copy(tx)
-    x = (x - mean) / std
+    x = np.copy(tx[:, std!=0])
+    x = (x - mean[std!=0]) / std[std!=0]
     return x
 
 def process_y(ty):
@@ -413,3 +422,56 @@ def pca(x, num_components):
     # project the data onto the new basis
     x = x @ eig_vec
     return x, eig_vec, eig_val, weight
+
+
+def data_augmentation(x, y):
+    """ Increase datapoints to balance the dataset
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y: numpy array of shape (N,), N is the number of samples
+        
+    Returns:
+        new_x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        new_y: numpy array of shape (N,), N is the number of samples
+    """
+
+    # get the indices of the positive and negative samples
+    pos_indices = np.where(y == 1)[0]
+    neg_indices = np.where(y == -1)[0]
+
+    # shuffle the indices
+    np.random.shuffle(pos_indices)
+    np.random.shuffle(neg_indices)
+
+    # get the number of positive and negative samples
+    pos_num = len(pos_indices)
+    neg_num = len(neg_indices)
+
+    # get the number of samples to add
+    add_num = pos_num - neg_num
+
+    # get the indices of the samples to add
+    if add_num > 0:
+        add_indices = np.random.choice(neg_indices, add_num)
+    else:
+        add_num = -add_num
+        add_indices = np.random.choice(pos_indices, add_num)
+
+    # add the samples
+    new_x = np.vstack((x, x[add_indices]))
+    new_y = np.hstack((y, y[add_indices]))
+
+    return new_x, new_y
+
+def binary_SVM(x, y):
+    """ Binary SVM algorithm using RBF kernel trick
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y: numpy array of shape (N,), N is the number of samples
+    Return:
+        w: numpy array of shape (D,), D is number of features
+        b: scalar
+    """
+    
+
+
