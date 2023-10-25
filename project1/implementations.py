@@ -302,6 +302,77 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
         )
     return w, loss
 
+def hinge_loss(y, tx, w, lambda_=0.1):
+    """Compute the hinge loss.
+    Args: 
+        y: numpy array of shape (N,), N is the number of samples.
+        tx: numpy array of shape (N,D), D is the number of features.
+        w: numpy array of shape (D,), D is the number of features.
+        lambda_: scalar.
+    Returns:
+        hinge loss
+    """
+    N = len(y)
+    pred = tx.dot(w)
+    loss = np.sum(np.maximum(0, 1 - y * pred)) / N + lambda_ / 2 * np.sum(w**2)
+
+    return loss
+
+def hinge_gradient(y, tx, w, lambda_=0.1):
+    """Compute the subgradient of hinge loss.
+    Args:
+        y: numpy array of shape (N,), N is the number of samples.
+        tx: numpy array of shape (N,D), D is the number of features.
+        w: numpy array of shape (D,), D is the number of features.
+        lambda_: scalar.
+    Returns:
+        subgradient of hinge loss
+    """
+    N = len(y)
+    pred = tx.dot(w)
+    mask = np.where(y * pred < 1, 1, 0)
+    gradient = -1/N * tx.T.dot(y * mask) + 2 * lambda_ * w
+
+    return gradient
+
+def hinge_predict(tx, w):
+    """predict the labels using hinge regression.
+    Args:
+        tx: numpy array of shape (N,D), D is the number of features.
+        w: numpy array of shape (D,), D is the number of features.
+    Returns:
+        predicted labels
+    """
+    pred = tx.dot(w)
+    pred[pred >= 0] = 1
+    pred[pred < 0] = -1
+    return pred
+
+def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
+    """implement hinge regression using subgradient descent.
+    Args: 
+        y: numpy array of shape (N,), N is the number of samples.
+        tx: numpy array of shape (N,D), D is the number of features.
+        initial_w: numpy array of shape (D,), D is the number of features.
+        max_iters: scalar.
+        gamma: scalar.
+        lambda_: scalar.
+    Returns:
+        w: optimal weights, numpy array of shape(D,), D is the number of features.
+        loss: hinge loss."""
+    w = initial_w
+    for n_iter in range(max_iters):
+        gradient = hinge_gradient(y, tx, w, lambda_)
+        loss = hinge_loss(y, tx, w, lambda_)
+        w = w - gamma * gradient
+        print(
+            "GD iter. {bi}/{ti}: loss={l}".format(
+                bi=n_iter, ti=max_iters - 1, l=loss
+            )
+        )
+    return w, loss
+
+
 
 ########### data preparation ###########
 def add_bias(x):
@@ -328,7 +399,6 @@ def fillna_with_mean(tx, threshold=0.2):
     x = np.copy(tx)
 
     x = x[:, nan_percentages < threshold]
-
     for feature in range(x.shape[1]):
         nan_mask = np.isnan(x[:,feature])
         clean_data = x[~nan_mask,feature]
@@ -395,6 +465,24 @@ def predict_f1(x_val, y_val, best_weights, logistic=False, threshold=0.5):
     print("The precision is: %.4f"%precision)
     print("The recall is: %.4f"%recall)
 
+# calculate accuracy
+def predict_acc_pure(y_pred, y_val):
+    accuracy = (y_pred == y_val).sum() / len(y_val)
+    print("The Accuracy is: %.4f"%accuracy)
+
+# calculate F1 score
+def predict_f1_pure(y_pred, y_val):
+
+    tp = np.sum((y_pred == 1) & (y_val == 1))
+    fp = np.sum((y_pred == 1) & (y_val != 1))
+    fn = np.sum((y_pred != 1) & (y_val == 1))
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    print("The F1 score is: %.4f"%f1)
+    print("The precision is: %.4f"%precision)
+    print("The recall is: %.4f"%recall)
+
 # feature selection using PCA
 def pca(x, num_components):
     """PCA algorithm
@@ -437,7 +525,7 @@ def data_augmentation(x, y):
 
     # get the indices of the positive and negative samples
     pos_indices = np.where(y == 1)[0]
-    neg_indices = np.where(y == -1)[0]
+    neg_indices = np.where(y != 1)[0]
 
     # shuffle the indices
     np.random.shuffle(pos_indices)
@@ -463,15 +551,34 @@ def data_augmentation(x, y):
 
     return new_x, new_y
 
-def binary_SVM(x, y):
-    """ Binary SVM algorithm using RBF kernel trick
+def split_data(x, y, scale):
+    """split the data into training set and validation set
     Args:
         x: numpy array of shape (N,D), N is the number of samples, D is number of features
         y: numpy array of shape (N,), N is the number of samples
-    Return:
-        w: numpy array of shape (D,), D is number of features
-        b: scalar
+        scale: ratio of training set
+    Returns:
+        x_train: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y_train: numpy array of shape (N,), N is the number of samples
+        x_val: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y_val: numpy array of shape (N,), N is the number of samples
     """
+    # shuffle the data
+    indices = np.arange(len(y))
+    np.random.shuffle(indices)
+    x = x[indices]
+    y = y[indices]
+
+    # split the data
+    split = int(len(y) * scale)
+    x_train = x[:split]
+    y_train = y[:split]
+    x_val = x[split:]
+    y_val = y[split:]
+
+    return x_train, y_train, x_val, y_val
+
+def outlier_removal(x, y):
     
 
 
