@@ -344,8 +344,8 @@ def hinge_predict(tx, w):
         predicted labels
     """
     pred = tx.dot(w)
-    pred[pred >= 0] = 1
-    pred[pred < 0] = -1
+    pred[pred > 0] = 1
+    pred[pred <= 0] = 0
     return pred
 
 def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
@@ -375,6 +375,45 @@ def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
 
 
 ########### data preparation ###########
+
+def normalize_nan(x):
+    """Uniform encoding for missing values as NaN. Feature values over 95 percentile of the column (distribution without 
+    existing "NaN") are considered as NaN.
+    
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+    
+    Returns:
+        numpy array containing the data, with missing values encoded as NaN.
+    
+    """ 
+    x = np.copy(x)
+    for feature in range(x.shape[1]):
+        # get the 95 percentile of the feature
+        percentile = np.percentile(x[:,feature], 95)
+        # replace values over 95 percentile with NaN
+        x[x[:,feature] > percentile, feature] = np.nan
+    return x
+
+def drop_rows(x, y, threshold = 0.5):
+    """drop rows where over threshold of the data is NaN.
+    
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y: numpy array of shape (N,), N is the number of samples
+        threshold: threshold for dropping rows
+    
+    Returns:
+        numpy array containing the data, with rows dropped.
+    """
+    # get the number of NaN in each row
+    nan_num = np.sum(np.isnan(x), axis=1)
+    # get the indices of rows with less than threshold NaN
+    indices = np.where(nan_num < threshold * x.shape[1])[0]
+    return x[indices], y[indices]
+
+
+
 def add_bias(x):
     """add bias to the data.
 
@@ -386,23 +425,91 @@ def add_bias(x):
     """
     return np.hstack((np.ones((x.shape[0], 1)), x))
 
-def fillna_with_mean(tx, threshold=0.2):
+def drop_features(x, threshold=0.5):
+    """drop features where over threshold of the data is NaN and also those with std == 0.
+    
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        threshold: threshold for dropping features
+
+    Returns:
+        x: numpy array containing the data, with features dropped.
+        indices: indices of the features kept.
     """
-    replace the missing value with mean value of each feature, and remove features where over 50% of the data is NaN.     
+    # get the number of NaN in each feature
+    nan_num = np.sum(np.isnan(x), axis=0)
+    # get the indices of features with less than threshold NaN and std != 0, calculate the std for each feature excluding NaN
+    # indices = np.where(nan_num < threshold * x.shape[0])
+
+    indices = np.where((nan_num < threshold * x.shape[0]) & (np.nanstd(x, axis=0) != 0))[0]
+
+    return x[:, indices], indices
+
+def check_categorical(x, threshold = 10):
+    """check if there are categorical features in the data.
+    
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+
+    Returns:
+        indices: indices of the categorical features.
+    """
+    indices = []
+    for feature in range(x.shape[1]):
+        if len(np.unique(x[:, feature])) < threshold:
+            indices.append(feature)
+    return indices
+
+def fillna(tx, cate_indices):
+    """
+    replace the missing value with mean value for non-categorical features and majority label for categorical features .     
     Args:
         tx: numpy array of shape (N,D), N is the number of samples, D is number of features        
     Returns:
-        numpy array containing the data, with missing values replaced with mean.
+        numpy array containing the data, with missing values replaced.
     """
-    # remove columns where over 50% of the data is NaN
-    nan_percentages = np.sum(np.isnan(tx), axis=0) / tx.shape[0]
+    
     x = np.copy(tx)
-
-    x = x[:, nan_percentages < threshold]
     for feature in range(x.shape[1]):
-        nan_mask = np.isnan(x[:,feature])
-        clean_data = x[~nan_mask,feature]
-        x[nan_mask, feature] = np.mean(clean_data)
+        if feature not in cate_indices:
+            # replace NaN with mean
+            mean = np.nanmean(x[:, feature])
+            x[np.isnan(x[:, feature]), feature] = mean
+        else:
+            # replace NaN with majority label if the label is not NaN, otherwise replace the second majority label
+            unique, counts = np.unique(x[:, feature], return_counts=True)
+            majority = unique[np.argmax(counts)]
+            if np.isnan(majority):
+                majority = unique[np.argsort(counts)[-2]]
+            else:
+                majority = unique[np.argsort(counts)[-1]]
+            x[np.isnan(x[:, feature]), feature] = majority
+    return x
+
+def one_hot_encoding(tx, cate_indices):
+    """one-hot encoding for categorical features.
+    Args:
+        tx: numpy array of shape (N,D), N is the number of samples, D is number of features
+        cate_indices: indices of the categorical features
+    Returns:
+        numpy array containing the data, with categorical features one-hot encoded.
+    """
+    # get the indices of non-categorical features
+    non_cate_indices = np.delete(np.arange(tx.shape[1]), cate_indices)
+    # get the non-categorical features
+    non_cate = tx[:, non_cate_indices]
+    # get the categorical features
+    cate = tx[:, cate_indices]
+    # one-hot encoding
+    new_cate = []
+    for feature in range(cate.shape[1]):
+        for unique in np.unique(cate[:, feature]):
+            new_cate.append((cate[:, feature] == unique).astype(int))
+    # cate = np.array([np.eye(len(np.unique(cate[:, feature])))[cate[:, feature].astype(int)] for feature in range(cate.shape[1])])
+    # cate = np.transpose(cate, (1,2,0))
+    # concatenate the features
+    new_cate = np.array(new_cate).T
+    x = np.hstack((non_cate, new_cate))
     return x
 
 def standardize(tx):
@@ -432,43 +539,44 @@ def process_y(ty):
     return y
 
 # calculate accuracy
-def predict_acc(x_val, y_val, best_weights, logistic=False,threshold=0.5):
-    if logistic:
-        y_pred = sigmoid(x_val @ best_weights)
-        y_pred[y_pred >= 0.5] = 1
-        y_pred[y_pred < 0.5] = 0
-    else:
-        y_pred = x_val @ best_weights
-        y_pred[y_pred >= threshold] = 1
-        y_pred[y_pred < threshold] = 0
-    accuracy = (y_pred == y_val).sum() / len(y_val)
-    print("The Accuracy is: %.4f"%accuracy)
+# def predict_acc(x_val, y_val, best_weights, logistic=False,threshold=0.5):
+#     if logistic:
+#         y_pred = sigmoid(x_val @ best_weights)
+#         y_pred[y_pred >= 0.5] = 1
+#         y_pred[y_pred < 0.5] = 0
+#     else:
+#         y_pred = x_val @ best_weights
+#         y_pred[y_pred >= threshold] = 1
+#         y_pred[y_pred < threshold] = 0
+#     accuracy = (y_pred == y_val).sum() / len(y_val)
+#     print("The Accuracy is: %.4f"%accuracy)
 
 # calculate F1 score
-def predict_f1(x_val, y_val, best_weights, logistic=False, threshold=0.5):
-    if logistic:
-        y_pred = sigmoid(x_val @ best_weights)
-        y_pred[y_pred >= 0.5] = 1
-        y_pred[y_pred < 0.5] = 0
-    else:
-        y_pred = x_val @ best_weights
-        y_pred[y_pred >= threshold] = 1
-        y_pred[y_pred < threshold] = 0
-        # print("y_pred", y_pred)
-    tp = np.sum((y_pred == 1) & (y_val == 1))
-    fp = np.sum((y_pred == 1) & (y_val == 0))
-    fn = np.sum((y_pred == 0) & (y_val == 1))
-    precision = tp / (tp + fp)
-    recall = tp / (tp + fn)
-    f1 = 2 * (precision * recall) / (precision + recall)
-    print("The F1 score is: %.4f"%f1)
-    print("The precision is: %.4f"%precision)
-    print("The recall is: %.4f"%recall)
+# def predict_f1(x_val, y_val, best_weights, logistic=False, threshold=0.5):
+#     if logistic:
+#         y_pred = sigmoid(x_val @ best_weights)
+#         y_pred[y_pred >= 0.5] = 1
+#         y_pred[y_pred < 0.5] = 0
+#     else:
+#         y_pred = x_val @ best_weights
+#         y_pred[y_pred >= threshold] = 1
+#         y_pred[y_pred < threshold] = 0
+#         # print("y_pred", y_pred)
+#     tp = np.sum((y_pred == 1) & (y_val == 1))
+#     fp = np.sum((y_pred == 1) & (y_val == 0))
+#     fn = np.sum((y_pred == 0) & (y_val == 1))
+#     precision = tp / (tp + fp)
+#     recall = tp / (tp + fn)
+#     f1 = 2 * (precision * recall) / (precision + recall)
+#     print("The F1 score is: %.4f"%f1)
+#     print("The precision is: %.4f"%precision)
+#     print("The recall is: %.4f"%recall)
 
 # calculate accuracy
 def predict_acc_pure(y_pred, y_val):
     accuracy = (y_pred == y_val).sum() / len(y_val)
     print("The Accuracy is: %.4f"%accuracy)
+    return acc
 
 # calculate F1 score
 def predict_f1_pure(y_pred, y_val):
@@ -482,6 +590,7 @@ def predict_f1_pure(y_pred, y_val):
     print("The F1 score is: %.4f"%f1)
     print("The precision is: %.4f"%precision)
     print("The recall is: %.4f"%recall)
+    return f1
 
 # feature selection using PCA
 def pca(x, num_components):
@@ -578,7 +687,116 @@ def split_data(x, y, scale):
 
     return x_train, y_train, x_val, y_val
 
-def outlier_removal(x, y):
+def split_cross_validation(x, y, slots = 10):
+    """split the data into #_slots of sub-sets for cross validation
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y: numpy array of shape (N,), N is the number of samples
+        slots: number of sub-sets
+    Returns:
+        sub_x: numpy array of shape (slots,N,D), N is the number of samples, D is number of features
+        sub_y: numpy array of shape (slots,N), N is the number of samples
+        
+    """
+    # shuffle the data
+    indices = np.arange(len(y))
+    np.random.shuffle(indices)
+    x = x[indices]
+    y = y[indices]
+
+    # split the data
+    split = int(len(y) / slots)
+    sub_x = []
+    sub_y = []
+    for i in range(slots-1):
+        sub_x.append(x[i*split:(i+1)*split])
+        sub_y.append(y[i*split:(i+1)*split])
+    sub_x.append([x[(slots-1)*split:]])
+    sub_y.append([y[(slots-1)*split:]])
+    return sub_x, sub_y
+   
+
+def z_outlier_removal(standardized_x, y, z_threshold=2.5, feature_threshold=0.3):
+    """remove outliers using z-score, regard a datapoint having more than 30% of the features 
+    with Z-score>2.5 as outliers, remove from x and corresponding y
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y: numpy array of shape (N,), N is the number of samples
+        threshold: threshold for outlier removal
+    Returns:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        y: numpy array of shape (N,), N is the number of samples
+        
+    """
+    # calculate the z-score
+    z = np.abs(standardized_x)
+    # get the number of features
+    feature_num = z.shape[1]
+    # get the number of features with z-score > threshold
+    feature_count = np.sum(z > z_threshold, axis=1)
+    # get the indices of the samples to remove
+    indices = np.where(feature_count > feature_threshold * feature_num)[0]
+    # remove the samples
+    x = np.delete(standardized_x, indices, axis=0)
+    y = np.delete(y, indices, axis=0)
+    return x, y
+
+def combinations_with_replacement(seq, r):
+    """Generate combinations with replacement for seq of length r."""
+    if r == 0:
+        return [[]]
+    if not seq:
+        return []
     
+    # Split the sequence to head (first element) and tail (rest of the elements)
+    head, tail = seq[0], seq[1:]
+    
+    # First part: Combinations that do not use the head at all
+    without_head = combinations_with_replacement(tail, r)
+    
+    # Second part: Combinations that use the head
+    with_head = [[head] + rest for rest in combinations_with_replacement(seq, r-1)]
+    
+    return with_head + without_head
+
+def polynomial_expansion(x, degree):
+    """polynomial expansion
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        degree: degree of polynomial expansion
+    Returns:
+        output: numpy array containing the data, with polynomial expansion.
+    """
+    if degree < 1:
+        raise ValueError("Degree should be at least 1.")
+    
+    N, D = x.shape
+    output = x.copy()
+
+    for deg in range(2, degree + 1):
+        for feature_combination in combinations_with_replacement(range(D), deg):
+            new_feature = np.prod(x[:, feature_combination], axis=1)
+            new_feature = new_feature.reshape((N, 1))
+            output = np.hstack((output, new_feature))
+    
+    return output
+
+def polynomial_expansion_single(x, degree):
+    """polynomial expansion
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features
+        degree: degree of polynomial expansion
+    Returns:
+        output: numpy array containing the data, with polynomial expansion without combining different features.
+    """
+    
+    N, D = x.shape
+    expanded_features = [x]  # start with the original features
+    
+    for deg in range(2, degree + 1):
+        expanded_features.append(np.power(x, deg))
+        
+    return np.hstack(expanded_features)
+
 
 
