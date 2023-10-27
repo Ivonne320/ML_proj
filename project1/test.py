@@ -35,9 +35,10 @@ def data_processing(x_train, y_train, row_nan, feature_nan, z_threshold, feature
     x_train_processed = fillna(x_train_processed, cat_indices)
     x_test_processed = fillna(x_test_processed, cat_indices)
     # One hot encoding for categorical features
-    # x_train_processed = one_hot_encoding(x_train_processed, cat_indices)
-    x_train_processed = standardize(x_train_processed)
-    x_test_processed = standardize(x_test_processed)
+    x_train_processed = one_hot_encoding(x_train_processed, cat_indices)
+    x_test_processed = one_hot_encoding(x_test_processed, cat_indices)
+    x_train_processed, train_mean, train_std = standardize(x_train_processed)
+    x_test_processed = (x_test_processed - train_mean) / train_std
     x_train_processed, y_train_processed = z_outlier_removal(x_train_processed, y_train_processed, z_threshold, feature_threshold)
 
     return x_train_processed, y_train_processed, x_test_processed
@@ -97,6 +98,7 @@ def objective_log(trial):
         x_pca_t = add_bias(x_pca)
         sub_x, sub_y = split_cross_validation(x_pca_t, y_train_processed, 5)
     else:
+        pre_train_data = add_bias(pre_train_data)
         sub_x, sub_y = split_cross_validation(pre_train_data, y_train_processed, 5)
     accs = []
     f1s = []
@@ -143,6 +145,7 @@ def create_model(study):
         w, loss = reg_logistic_regression(y_train_processed, x_pca, lambda_=lambda_, initial_w=initial_w, max_iters=50, gamma=gamma, verbose=True)
     else:
         initial_w = np.random.randn(pre_train_data.shape[1]) * 0.01
+        pre_train_data = add_bias(pre_train_data)
         pre_train_data = data_augmentation(pre_train_data)
         w, loss = reg_logistic_regression(y_train_processed, pre_train_data, lambda_=lambda_, initial_w=initial_w, max_iters=50, gamma=gamma, verbose=True)
     y_pred = ((x_test_processed @ w) > thres).astype(int)
@@ -173,7 +176,7 @@ def main():
 
     sampler = optuna.samplers.TPESampler(multivariate=True, n_ei_candidates=50)
     study = optuna.create_study(direction='maximize', sampler=sampler)
-    study.optimize(objective_log, n_trials=250)
+    study.optimize(objective_log, n_trials=100)
     print(study.best_trial)
 
     return study

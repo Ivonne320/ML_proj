@@ -525,9 +525,9 @@ def standardize(tx):
     # for training set:
     mean = tx.mean(axis=0)
     std = tx.std(axis=0)
-    x = np.copy(tx[:, std!=0])
-    x = (x - mean[std!=0]) / std[std!=0]
-    return x
+    x = np.copy(tx)
+    x = (x - mean) / std
+    return x, mean, std
 
 def process_y(ty):
     """converts the labels from {-1,1} to {0,1}
@@ -577,8 +577,8 @@ def process_y(ty):
 # calculate accuracy
 def predict_acc_pure(y_pred, y_val):
     accuracy = (y_pred == y_val).sum() / len(y_val)
-    print("The Accuracy is: %.4f"%accuracy)
-    return acc
+    # print("The Accuracy is: %.4f"%accuracy)
+    return accuracy
 
 # calculate F1 score
 def predict_f1_pure(y_pred, y_val):
