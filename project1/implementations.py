@@ -266,16 +266,16 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
         gradient = log_likely_gradient(y, tx, w)
         loss = log_likely_loss(y, tx, w)
         w = w - gamma * gradient
-        print(
-            "GD iter. {bi}/{ti}: loss={l}".format(
-                bi=n_iter, ti=max_iters - 1, l=loss
-            )
-        )
+        # print(
+        #     "GD iter. {bi}/{ti}: loss={l}".format(
+        #         bi=n_iter, ti=max_iters - 1, l=loss
+        #     )
+        # )
     return w, loss
 
 
 """ a function used to perform regularized logistic regression using gradient descent. regularization term is L2."""
-def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
+def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma, verbose=False):
     """implement regularized logistic regression using gradient descent.
 
     Args:
@@ -295,11 +295,12 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
         gradient = log_likely_gradient(y, tx, w) + 2 * lambda_ * w
         loss = log_likely_loss(y, tx, w)
         w = w - gamma * gradient
-        print(
-            "GD iter. {bi}/{ti}: loss={l}".format(
-                bi=n_iter, ti=max_iters - 1, l=loss
+        if verbose:
+            print(
+                "GD iter. {bi}/{ti}: loss={l}".format(
+                    bi=n_iter, ti=max_iters - 1, l=loss
+                )
             )
-        )
     return w, loss
 
 def hinge_loss(y, tx, w, lambda_=0.1):
@@ -365,11 +366,12 @@ def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
         gradient = hinge_gradient(y, tx, w, lambda_)
         loss = hinge_loss(y, tx, w, lambda_)
         w = w - gamma * gradient
-        print(
-            "GD iter. {bi}/{ti}: loss={l}".format(
-                bi=n_iter, ti=max_iters - 1, l=loss
-            )
-        )
+        # if n_iter % 50 == 0:
+        #     print(
+        #         "GD iter. {bi}/{ti}: loss={l}".format(
+        #             bi=n_iter, ti=max_iters - 1, l=loss
+        #         )
+        #     )
     return w, loss
 
 
@@ -410,7 +412,7 @@ def drop_rows(x, y, threshold = 0.5):
     nan_num = np.sum(np.isnan(x), axis=1)
     # get the indices of rows with less than threshold NaN
     indices = np.where(nan_num < threshold * x.shape[1])[0]
-    return x[indices], y[indices]
+    return x[indices], y[indices], indices
 
 
 
@@ -575,8 +577,8 @@ def process_y(ty):
 # calculate accuracy
 def predict_acc_pure(y_pred, y_val):
     accuracy = (y_pred == y_val).sum() / len(y_val)
-    print("The Accuracy is: %.4f"%accuracy)
-    return acc
+    # print("The Accuracy is: %.4f"%accuracy)
+    return accuracy
 
 # calculate F1 score
 def predict_f1_pure(y_pred, y_val):
@@ -587,9 +589,9 @@ def predict_f1_pure(y_pred, y_val):
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     f1 = 2 * (precision * recall) / (precision + recall)
-    print("The F1 score is: %.4f"%f1)
-    print("The precision is: %.4f"%precision)
-    print("The recall is: %.4f"%recall)
+    # print("The F1 score is: %.4f"%f1)
+    # print("The precision is: %.4f"%precision)
+    # print("The recall is: %.4f"%recall)
     return f1
 
 # feature selection using PCA
@@ -700,6 +702,7 @@ def split_cross_validation(x, y, slots = 10):
     """
     # shuffle the data
     indices = np.arange(len(y))
+    np.random.seed(1)
     np.random.shuffle(indices)
     x = x[indices]
     y = y[indices]
@@ -711,8 +714,8 @@ def split_cross_validation(x, y, slots = 10):
     for i in range(slots-1):
         sub_x.append(x[i*split:(i+1)*split])
         sub_y.append(y[i*split:(i+1)*split])
-    sub_x.append([x[(slots-1)*split:]])
-    sub_y.append([y[(slots-1)*split:]])
+    sub_x.append(x[(slots-1)*split:])
+    sub_y.append(y[(slots-1)*split:])
     return sub_x, sub_y
    
 
