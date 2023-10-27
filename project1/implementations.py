@@ -486,7 +486,7 @@ def fillna(tx, cate_indices):
             x[np.isnan(x[:, feature]), feature] = majority
     return x
 
-def one_hot_encoding(tx, cate_indices):
+def one_hot_encoding(tx,test_x, cate_indices):
     """one-hot encoding for categorical features.
     Args:
         tx: numpy array of shape (N,D), N is the number of samples, D is number of features
@@ -495,11 +495,13 @@ def one_hot_encoding(tx, cate_indices):
         numpy array containing the data, with categorical features one-hot encoded.
     """
     # get the indices of non-categorical features
-    non_cate_indices = np.delete(np.arange(tx.shape[1]), cate_indices)
+    split = tx.shape[0]
+    new_x = np.vstack((tx, test_x))
+    non_cate_indices = np.delete(np.arange(new_x.shape[1]), cate_indices)
     # get the non-categorical features
-    non_cate = tx[:, non_cate_indices]
+    non_cate = new_x[:, non_cate_indices]
     # get the categorical features
-    cate = tx[:, cate_indices]
+    cate = new_x[:, cate_indices]
     # one-hot encoding
     new_cate = []
     for feature in range(cate.shape[1]):
@@ -510,7 +512,7 @@ def one_hot_encoding(tx, cate_indices):
     # concatenate the features
     new_cate = np.array(new_cate).T
     x = np.hstack((non_cate, new_cate))
-    return x
+    return x[:split], x[split:]
 
 def standardize(tx):
     """z-score standardization
@@ -522,10 +524,12 @@ def standardize(tx):
     """
     # for training set:
     mean = tx.mean(axis=0)
+    
     std = tx.std(axis=0)
-    x = np.copy(tx[:, std!=0])
-    x = (x - mean[std!=0]) / std[std!=0]
-    return x
+    std[std == 0] = 1
+    x = np.copy(tx)
+    x = (x - mean) / std
+    return x, mean , std
 
 def process_y(ty):
     """converts the labels from {-1,1} to {0,1}
@@ -574,7 +578,7 @@ def process_y(ty):
 
 # calculate accuracy
 def predict_acc_pure(y_pred, y_val):
-    accuracy = (y_pred == y_val)[0].sum() / len(y_val)
+    accuracy = (y_pred == y_val).sum() / len(y_val)
     print("The Accuracy is: %.4f"%accuracy)
     return accuracy
 
@@ -939,10 +943,10 @@ def forward_propagation(network, x):
     a4 = sigmoid(z4)
 
     # clip a2 values
-    epsilon = 1e-7
+    # epsilon = 1e-7
     # a2 = np.clip(a2, epsilon, 1 - epsilon)
     # activations = [a1, a2]
-    a4 = np.clip(a4, epsilon, 1 - epsilon)
+    # a4 = np.clip(a4, epsilon, 1 - epsilon)
 
     # clip z4 values
     # z4 = np.clip(z4, epsilon, 1 - epsilon)
@@ -991,14 +995,14 @@ def backpropagation(network, x, y, activations):
     db1 = np.sum(dz1, axis=0, keepdims=True) / m
 
     max_int = 1
-    dw1 = np.clip(dw1, -max_int, max_int)
-    dw2 = np.clip(dw2, -max_int, max_int)
-    dw3 = np.clip(dw3, -max_int, max_int)
-    dw4 = np.clip(dw4, -max_int, max_int)
-    db1 = np.clip(db1, -max_int, max_int)
-    db2 = np.clip(db2, -max_int, max_int)
-    db3 = np.clip(db3, -max_int, max_int)
-    db4 = np.clip(db4, -max_int, max_int)
+    # dw1 = np.clip(dw1, -max_int, max_int)
+    # dw2 = np.clip(dw2, -max_int, max_int)
+    # dw3 = np.clip(dw3, -max_int, max_int)
+    # dw4 = np.clip(dw4, -max_int, max_int)
+    # db1 = np.clip(db1, -max_int, max_int)
+    # db2 = np.clip(db2, -max_int, max_int)
+    # db3 = np.clip(db3, -max_int, max_int)
+    # db4 = np.clip(db4, -max_int, max_int)
     
 
     # return [{"dW": dw1, "db": db1}, {"dW": dw2, "db": db2}]
@@ -1009,8 +1013,14 @@ def update_weights(network, gradients, learning_rate):
         layer['W'] -= learning_rate * gradient['dW']
         layer['b'] -= learning_rate * gradient['db']
 
-def train(network, X, y, learning_rate, epochs, batch_size):
+def train(network, X, y, X_v, y_v, learning_rate, epochs, batch_size, n_pat=10):
     m = X.shape[0]
+    losses = []
+    f1s = []
+    accs = []
+    best_f1 = -np.inf
+    num_epochs_without_improvement = 0
+    patience = n_pat
     for epoch in range(epochs):
         indices = np.arange(m)
         np.random.shuffle(indices)
@@ -1025,17 +1035,38 @@ def train(network, X, y, learning_rate, epochs, batch_size):
             # a2 = activations[-1]
             # loss = -np.mean(y_batch * np.log(a2) + (1 - y_batch) * np.log(1 - a2))
             a4 = activations[-1]
-            # loss = -np.mean(y_batch * np.log(a4) + (1 - y_batch) * np.log(1 - a4))
-            logprobs = np.dot(y_batch.reshape(1,-1),np.log(a4))+np.dot((1-y_batch.reshape(1,-1)),np.log(1-a4)) 
-            loss = -logprobs / m
+            loss = -np.mean(y_batch.reshape(-1, 1) * np.log(a4) + (1 - y_batch.reshape(-1, 1)) * np.log(1 - a4))
+            losses.append(loss)
+            # logprobs = np.dot(y_batch.reshape(1,-1),np.log(a4))+np.dot((1-y_batch.reshape(1,-1)),np.log(1-a4)) 
+            # loss = -logprobs / m
         
             gradients = backpropagation(network, X_batch, y_batch, activations)
             update_weights(network, gradients, learning_rate)
-        
+        # test the model on validation set
+        threshold = np.arange(0.1, 1, 0.1)
+        y_pred = [(forward_propagation(network, X_v)[-1].squeeze() > thres).astype(int) for thres in threshold]
+        f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
+        accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
+        # early stopping
+        if np.max(f1s[-1]) > best_f1:
+            best_f1 = np.max(f1s[-1])
+            best_threshold = threshold[np.argmax(f1s[-1])]
+            network[-1]["best_threshold"] = best_threshold
+            network[-1]["best_f1"] = best_f1
+            num_epochs_without_improvement = 0
+            best_network = network.copy()
+        else:
+            num_epochs_without_improvement += 1
+            if num_epochs_without_improvement > patience:
+                print("Early stopping at epoch", epoch)
+                network = best_network
+                break
+        # print index every 2 epochs
         if epoch % 2 == 0:  # print loss every 100 epochs
-            print("Epoch:", epoch, "Loss:", loss)
+            print("Epoch:", epoch, "Loss:", loss, "Validation F1:", f1s[-1], "Validation Acc:", accs[-1])
+            
     
-    return network
+    return network, losses
 
 def predict(network, X):
     
@@ -1049,6 +1080,8 @@ def predict(network, X):
     
     return predictions
 
+def save_network(network, filename):
+    np.savez(filename, network=network)
 
 
 ##### Nerual Network with keras  #####
@@ -1062,4 +1095,3 @@ def predict(network, X):
 # from keras.models import Sequential
 # from keras.layers import Dense, Dropout
 # from keras.callbacks import EarlyStoppingpip
-
