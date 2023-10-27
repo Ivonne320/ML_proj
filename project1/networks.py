@@ -22,7 +22,8 @@ def predict_f1_pure(y_pred, y_val):
 
 class NeuralNetwork:
     
-    def __init__(self, layer_sizes, output_activation='sigmoid', loss_function='bce'):
+    def __init__(self, layer_sizes, output_activation='sigmoid', loss_function='bce',adam=False):
+        self.adam = adam
         self.network = self.initialize_network(layer_sizes)
         self.output_activation = output_activation
         self.loss_function = loss_function
@@ -41,12 +42,18 @@ class NeuralNetwork:
 
     def initialize_network(self, sizes):
         network = []
+        if self.adam:
+            self.mom = []
+            self.v = []
         for i in range(len(sizes) - 1):
             layer = {
                 'W': np.random.randn(sizes[i], sizes[i+1]) * np.sqrt(2./sizes[i]),
                 'b': np.zeros((1, sizes[i+1]))
             }
             network.append(layer)
+            if self.adam:
+                self.mom.append(np.zeros((sizes[i], sizes[i+1])))
+                self.v.append(np.zeros((sizes[i], sizes[i+1])))
         return network
 
     def forward_propagation(self, x):
@@ -110,6 +117,16 @@ class NeuralNetwork:
         for layer, gradient in zip(self.network, gradients):
             layer['W'] -= learning_rate * gradient['dW']
             layer['b'] -= learning_rate * gradient['db']
+    
+    def update_weights_adam(self, gradients, learning_rate, t, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        """update weights using adam optimizer"""
+        for n, (layer, gradient) in enumerate(zip(self.network, gradients)):
+            self.mom[n] = beta1*self.mom[n] + (1-beta1)*gradient['dW']
+            self.v[n] = beta2*self.v[n] + (1-beta2)*(gradient['dW']**2)   
+            m_hat = self.mom[n]/(1-beta1**t)
+            v_hat = self.v[n]/(1-beta2**t)
+            layer['W'] -= learning_rate * m_hat / (np.sqrt(v_hat) + epsilon)
+            layer['b'] -= learning_rate * gradient['db']
 
     def train(self, X, y, X_v, y_v, learning_rate, epochs, batch_size, n_pat=10):
         #... (similar to original implementation, using class methods)
@@ -140,7 +157,10 @@ class NeuralNetwork:
                 # loss = -logprobs / m
             
                 gradients = self.backpropagation(X_batch, y_batch, activations)
-                self.update_weights(gradients, learning_rate)
+                if self.adam:
+                    self.update_weights_adam(gradients, learning_rate, epoch+1, beta1=0.9, beta2=0.999, epsilon=1e-8)
+                else:
+                    self.update_weights(gradients, learning_rate)
             # test the model on validation set
             threshold = np.arange(0.1, 1, 0.1)
             y_pred = [(self.forward_propagation(X_v)[-1].squeeze() > thres).astype(int) for thres in threshold]
