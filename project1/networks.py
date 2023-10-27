@@ -134,7 +134,7 @@ class NeuralNetwork:
                 # a2 = activations[-1]
                 # loss = -np.mean(y_batch * np.log(a2) + (1 - y_batch) * np.log(1 - a2))
                 a4 = activations[-1]
-                loss = self.compute_loss(a4, y_batch.reshape(1,-1))
+                loss = self.compute_loss(a4, y_batch.reshape(-1,1))
                 losses.append(loss)
                 # logprobs = np.dot(y_batch.reshape(1,-1),np.log(a4))+np.dot((1-y_batch.reshape(1,-1)),np.log(1-a4)) 
                 # loss = -logprobs / m
@@ -170,3 +170,28 @@ class NeuralNetwork:
         
     def predict(self, X):
         return (np.squeeze(self.forward_propagation(X)[-1]) > 0.5).astype(int)
+    
+    @classmethod
+    def from_saved_weights(cls, filename):
+        """Load weights from a saved file."""
+        with np.load(filename, allow_pickle=True) as data:
+            loaded_network = data['network']
+        
+        # Assuming the input size is the same as the first weight matrix's input size
+        input_size = loaded_network[0]['W'].shape[0]
+        # Create an instance with the appropriate layer sizes
+        instance = cls([input_size] + [layer['W'].shape[1] for layer in loaded_network])
+        instance.network = loaded_network
+        return instance
+    
+    def predict_submission(self, X, custom_threshold=None):
+        prob = self.forward_propagation(X)[-1].squeeze()
+        if custom_threshold is None:
+            threshold = 0.5  # Default threshold
+        else:
+            threshold = custom_threshold
+        predictions = (prob > threshold).astype(int)
+        predictions[predictions == 0] = -1
+        return predictions
+    
+
