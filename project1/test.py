@@ -8,6 +8,7 @@ from optuna.samplers import CmaEsSampler
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
 from sklearn import metrics
+from network import *
 
 PCA = True
 # x_train, x_test, y_train, train_ids, test_ids = load_csv_data_new("/home/zewzhang/Course/ML/ML_course/projects/project1/data/dataset_to_release", sub_sample=True, num=20000)
@@ -48,6 +49,7 @@ def objective_hinge(trial):
     lambda_ = trial.suggest_float('lambda_', 5e-3, 5)
     thres = trial.suggest_float('thres', 0.5, 2)
     n_com = trial.suggest_int('n_com', 10, 200)
+    gamma = trial.suggest_float('gamma', 0.001, 0.2)
     row_nan = trial.suggest_float('row_nan', 0.3, 0.7)
     feature_nan = trial.suggest_float('feature_nan', 0.5, 0.7)
     z_threshold = trial.suggest_float('z_threshold', 1.8, 2.5)
@@ -63,6 +65,7 @@ def objective_hinge(trial):
         sub_x, sub_y = split_cross_validation(pre_train_data, y_train_processed, 5)
     accs = []
     f1s = []
+    losss = []
     # cross-validation
     for i in range(5):
         sub_cur_x = sub_x.copy()
@@ -71,12 +74,14 @@ def objective_hinge(trial):
         x_t, y_t = np.vstack(sub_cur_x), np.hstack(sub_cur_y)
         x_t, y_t = data_augmentation(x_t, y_t)
         initial_w = np.random.randn(x_t.shape[1]) * 0.01
-        w, loss = hinge_regression(y_t, x_t, initial_w, lambda_=lambda_, max_iters=250, gamma=0.01)
+        w, loss = hinge_regression(y_t, x_t, initial_w, lambda_=lambda_, max_iters=250, gamma=gamma)
         y_pred = ((x_v @ w) > thres).astype(int)
         accs.append(predict_acc_pure(y_pred, y_v))
         f1s.append(predict_f1_pure(y_pred, y_v))
+        losss.append(loss)
     print("Average accuracy score is: ", np.mean(accs))
     print("Average f1 score is: ", np.mean(f1s))
+    print("Average loss is: ", np.mean(losss))
     return np.mean(f1s)
 
 def objective_log(trial):

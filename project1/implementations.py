@@ -349,7 +349,7 @@ def hinge_predict(tx, w):
     pred[pred <= 0] = 0
     return pred
 
-def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
+def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1, n_pat=10):
     """implement hinge regression using subgradient descent.
     Args: 
         y: numpy array of shape (N,), N is the number of samples.
@@ -362,6 +362,12 @@ def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
         w: optimal weights, numpy array of shape(D,), D is the number of features.
         loss: hinge loss."""
     w = initial_w
+    best_weight = initial_w
+    f1s = []
+    accs = []
+    losses = []
+    best_f1 = -np.inf
+    num_early_stopping = 0
     for n_iter in range(max_iters):
         gradient = hinge_gradient(y, tx, w, lambda_)
         loss = hinge_loss(y, tx, w, lambda_)
@@ -372,7 +378,24 @@ def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1):
         #             bi=n_iter, ti=max_iters - 1, l=loss
         #         )
         #     )
-    return w, loss
+        threshold = np.arange(0.1, 1, 0.1)
+        y_pred = [(x_v @ w > thres).astype(int) for thres in threshold]
+        f1s.append([predict_f1_pure(pred, y_v) for pred in y_pred])
+        accs.append([predict_acc_pure(pred, y_v) for pred in y_pred])
+        losses.append(loss)
+        # early stopping
+        if np.max(f1s[-1]) > best_f1:
+            best_f1 = np.max(f1s[-1])
+            best_threshold = np.argmax(f1s[-1])
+            best_weight = w.copy()
+            num_early_stopping = 0
+        else:
+            num_early_stopping += 1
+            if num_early_stopping > n_pat:
+                w = best_weight
+                break
+
+    return w, losses
 
 
 
