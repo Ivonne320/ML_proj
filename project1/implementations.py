@@ -579,7 +579,7 @@ def process_y(ty):
 # calculate accuracy
 def predict_acc_pure(y_pred, y_val):
     accuracy = (y_pred == y_val).sum() / len(y_val)
-    print("The Accuracy is: %.4f"%accuracy)
+    # print("The Accuracy is: %.4f"%accuracy)
     return accuracy
 
 # calculate F1 score
@@ -591,9 +591,9 @@ def predict_f1_pure(y_pred, y_val):
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     f1 = 2 * (precision * recall) / (precision + recall)
-    print("The F1 score is: %.4f"%f1)
-    print("The precision is: %.4f"%precision)
-    print("The recall is: %.4f"%recall)
+    # print("The F1 score is: %.4f"%f1)
+    # print("The precision is: %.4f"%precision)
+    # print("The recall is: %.4f"%recall)
     return f1
 
 # feature selection using PCA
