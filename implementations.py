@@ -179,8 +179,8 @@ def ridge_regression(y, tx, lambda_):
         loss: mse scalar.
     """
     N,D = tx.shape
-    w = np.linalg.solve(tx.T.dot(tx) + lambda_ * np.identity(D), tx.T.dot(y))
-    loss = compute_mse(y, tx, w) + lambda_ * np.linalg.norm(w)**2
+    w = np.linalg.solve(tx.T.dot(tx) + lambda_*2*N* np.identity(D), tx.T.dot(y))
+    loss = compute_mse(y, tx, w)
     return w, loss
 
 
@@ -255,8 +255,8 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
     loss = log_likely_loss(y, tx, w)
     for n_iter in range(max_iters):
         gradient = log_likely_gradient(y, tx, w)
-        loss = log_likely_loss(y, tx, w)
         w = w - gamma * gradient
+        loss = log_likely_loss(y, tx, w)
         print(
             "GD iter. {bi}/{ti}: loss={l}".format(
                 bi=n_iter, ti=max_iters - 1, l=loss
@@ -286,8 +286,8 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
 
     for n_iter in range(max_iters):
         gradient = log_likely_gradient(y, tx, w) + 2 * lambda_ * w
-        loss = log_likely_loss(y, tx, w) 
         w = w - gamma * gradient
+        loss = log_likely_loss(y, tx, w) 
         print(
             "GD iter. {bi}/{ti}: loss={l}".format(
                 bi=n_iter, ti=max_iters - 1, l=loss
