@@ -51,8 +51,8 @@ def objective_hinge(trial):
     lambda_ = trial.suggest_float('lambda_', 5e-3, 5)
     n_com = trial.suggest_int('n_com', 10, 200)
     gamma = trial.suggest_float('gamma', 0.001, 0.2)
-    row_nan = 0.5
-    feature_nan = 0.2
+    row_nan = trial.suggest_float('row_nan', 0.5, 0.7)
+    feature_nan = trial.suggest_float('feature_nan', 0.2, 0.5)
     z_threshold = trial.suggest_float('z_threshold', 1.8, 2.5)
     feature_threshold = trial.suggest_float('feature_threshold', 0.1, 0.3)
 
