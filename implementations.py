@@ -180,7 +180,7 @@ def ridge_regression(y, tx, lambda_):
     """
     N,D = tx.shape
     w = np.linalg.solve(tx.T.dot(tx) + lambda_ * np.identity(D), tx.T.dot(y))
-    loss = compute_mse(y, tx, w)
+    loss = compute_mse(y, tx, w) + lambda_ * np.linalg.norm(w)**2
     return w, loss
 
 
@@ -252,6 +252,7 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
         loss: negative log likelyhood cost.
     """
     w = initial_w
+    loss = log_likely_loss(y, tx, w)
     for n_iter in range(max_iters):
         gradient = log_likely_gradient(y, tx, w)
         loss = log_likely_loss(y, tx, w)
