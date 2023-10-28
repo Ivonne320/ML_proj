@@ -281,10 +281,11 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
         loss: negative log likelyhood cost.
     """
     w = initial_w
-    loss = 0
+    loss = log_likely_loss(y, tx, w)
+
     for n_iter in range(max_iters):
         gradient = log_likely_gradient(y, tx, w) + 2 * lambda_ * w
-        loss = log_likely_loss(y, tx, w) + lambda_ * np.squeeze(w.T.dot(w))
+        loss = log_likely_loss(y, tx, w) 
         w = w - gamma * gradient
         print(
             "GD iter. {bi}/{ti}: loss={l}".format(
