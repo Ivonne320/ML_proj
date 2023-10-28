@@ -574,6 +574,25 @@ def standardize(tx):
     x = (x - mean) / std
     return x, mean, std
 
+def normalization(tx, max_=None, min_=None):
+    """normalization
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features        
+    Returns:
+        output: normalized data, range from 0 to 1
+
+    """
+    if max_ is None or min_ is None:
+        # for training set:
+        max_ = tx.max(axis=0)
+        min_ = tx.min(axis=0)
+    x = np.copy(tx)
+    indices = np.where(max_ == min_)[0]
+    max_[indices] = 1
+    min_[indices] = 0
+    x = (x - min_) / (max_ - min_)
+    return x, max_, min_
+
 def process_y(ty):
     """converts the labels from {-1,1} to {0,1}
     Args:

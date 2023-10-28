@@ -8,7 +8,7 @@ from optuna.samplers import CmaEsSampler
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
 from sklearn import metrics
-# from network import *
+from networks import *
 import datetime
 
 PCA = True
@@ -126,7 +126,6 @@ def objective_log(trial):
 
     return np.mean(f1s)
 
-
 def create_model(study):
     model = {}
     x_train1, x_test1, y_train1, _, _ = load_csv_data_new("/home/zewzhang/Course/ML/ML_course/projects/project1/data/dataset_to_release", sub_sample=False, num=25000)
@@ -172,7 +171,8 @@ def create_model(study):
             w, loss, best_f1, best_threshold = hinge_regression(y_t, x_t, y_v, x_v, initial_w, lambda_=lambda_, max_iters=500, gamma=gamma)
         else:
             w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, x_t, y_v, x_v, lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
-    model = dict(PCA=PCA, HINGE=HINGE, w=w, best_f1=best_f1, best_threshold=best_threshold, losses=loss)
+    model = dict(PCA=PCA, HINGE=HINGE, w=w, best_f1=best_f1, best_threshold=best_threshold, losses=loss, 
+                 lambda_=lambda_, n_com=n_com, gamma=gamma)
     model_name = "./model_{}".format(datetime.datetime.now().strftime("%m%d%Y_%H_%M_%S"))
     np.savez(model_name, model)
     print('best F1 score is: ', best_f1)
@@ -191,6 +191,15 @@ def vote(study):
     y_pred = np.sign(np.sum(y_preds, 0))
 
     return y_pred
+
+def neural_network(x_train, y_train, x_val, y_val, lr=0.001, epochs=500, batch_size=1024, n_pat=10):
+    input_size = x_train.shape[1]
+    nn_structure = [input_size, 256, 128, 64, 16, 64, 128, 256, input_size]
+    network = NeuralNetwork(layer_sizes=nn_structure, output_activation='linear', loss_function='mse')
+    _, loss = network.train(x_train, y_train, x_val, y_val, lr, epochs, batch_size, n_pat, early_stop=False)
+    # feature_layer = int(len(nn_structure)-1/2)
+    # feature = nn_model.get_feature(x_train, feature_layer)
+    return network, loss
 
 def main():
     # thresholds for nans
@@ -211,6 +220,22 @@ def main():
     print(study.best_trial)
 
     return study
+
+def test_nn():
+    global x_train, x_test, y_train, train_ids, test_ids
+    row_nan = 0.5
+    feature_nan = 0.2
+    z_threshold = 2
+    feature_threshold = 0.3
+    x_train_processed, y_train_processed, x_test_processed = data_processing(x_train, y_train, row_nan, feature_nan, z_threshold, feature_threshold, x_test)
+    x_t, y_t, x_v, y_v = split_data(x_train_processed, y_train_processed, 0.8)
+    nn_model, loss = neural_network(x_t, x_t, x_v, x_v, lr=0.01, batch_size=256, epochs=500)
+    feature = nn_model.get_feature(x_t)
+    print('dimension of feature is: ', feature.shape)
+    plt.figure()
+    plt.plot(loss)
+    plt.show()
+
 
 def OC_SWM():
     # thresholds for nans
@@ -241,13 +266,14 @@ def OC_SWM():
 if __name__ == '__main__':
     # y_preds = []
     # for i in range(5):
-    study = main()
-    fair = False
-    if fair:
-        y_pred = vote(study)
-    else:
-        y_pred = create_model(study)
-        
-    create_csv_submission(test_ids, y_pred, "./submission.csv")
+    # study = main()
+    # fair = False
+    # if fair:
+    #     y_pred = vote(study)
+    # else:
+    #     y_pred = create_model(study)
+    # create_csv_submission(test_ids, y_pred, "./submission.csv")
+    test_nn()
+
     # OC_SWM()
     # create_csv_submission(test_ids, np.argmax(np.bincount(y_preds, 1), 1), "./submission.csv")

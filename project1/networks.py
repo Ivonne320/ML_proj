@@ -22,10 +22,13 @@ def predict_f1_pure(y_pred, y_val):
 
 class NeuralNetwork:
     
-    def __init__(self, layer_sizes, output_activation='sigmoid', loss_function='bce'):
+    def __init__(self, layer_sizes, output_activation='sigmoid', loss_function='bce', adam=False):
+        # used for adam optimizer
+        self.adam = adam
         self.network = self.initialize_network(layer_sizes)
         self.output_activation = output_activation
         self.loss_function = loss_function
+
         
     @staticmethod
     def sigmoid(x):
@@ -41,12 +44,18 @@ class NeuralNetwork:
 
     def initialize_network(self, sizes):
         network = []
+        if self.adam:
+            self.mom = []
+            self.v = []
         for i in range(len(sizes) - 1):
             layer = {
                 'W': np.random.randn(sizes[i], sizes[i+1]) * np.sqrt(2./sizes[i]),
                 'b': np.zeros((1, sizes[i+1]))
             }
             network.append(layer)
+            if self.adam:
+                self.mom.append(np.zeros((sizes[i], sizes[i+1])))
+                self.v.append(np.zeros((sizes[i], sizes[i+1])))
         return network
 
     def forward_propagation(self, x):
@@ -72,7 +81,7 @@ class NeuralNetwork:
         if self.loss_function == 'bce':
             return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
         elif self.loss_function == 'mse':
-            return np.mean((y_true - y_pred) ** 2)
+            return np.mean((y_true - y_pred) ** 2, dtype=np.float128)
         else:
             raise ValueError("Invalid loss function.")
 
@@ -82,9 +91,9 @@ class NeuralNetwork:
         # da = activations[-1] - y.reshape(-1, 1)
         # depending on the loss function, the derivative of the last layer
         if self.loss_function == 'bce':
-            da = activations[-1] - y.reshape(-1, 1)
+            da = activations[-1] - y.reshape(activations[-1].shape)
         elif self.loss_function == 'mse':
-            da = 2 * (activations[-1] - y.reshape(-1, 1))
+            da = 2 * (activations[-1] - y.reshape(activations[-1].shape))
         else:
             raise ValueError("Invalid loss function.")
 
@@ -99,7 +108,7 @@ class NeuralNetwork:
                 else:
                     raise ValueError("Invalid output activation function.")
             else: # hidden layers always use relu
-                dz = da * (activations[i] if i == len(self.network) - 1 else self.relu_derivative(activations[i]))
+                dz = da * self.relu_derivative(activations[i])
             dw = np.dot(activations[i - 1].T if i != 0 else x.T, dz) / m
             db = np.sum(dz, axis=0, keepdims=True) / m
             gradients.insert(0, {"dW": dw, "db": db})
@@ -111,7 +120,18 @@ class NeuralNetwork:
             layer['W'] -= learning_rate * gradient['dW']
             layer['b'] -= learning_rate * gradient['db']
 
-    def train(self, X, y, X_v, y_v, learning_rate, epochs, batch_size, n_pat=10):
+    def update_weights_adam(self, gradients, learning_rate, t, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        """update weights using adam optimizer"""
+        for n, (layer, gradient) in enumerate(zip(self.network, gradients)):
+            self.mom[n] = beta1*self.mom[n] + (1-beta1)*gradient['dW']
+            self.v[n] = beta2*self.v[n] + (1-beta2)*(gradient['dW']**2)   
+            m_hat = self.mom[n]/(1-beta1**t)
+            v_hat = self.v[n]/(1-beta2**t)
+            layer['W'] -= learning_rate * m_hat / (np.sqrt(v_hat) + epsilon)
+            layer['b'] -= learning_rate * gradient['db']
+
+
+    def train(self, X, y, X_v, y_v, learning_rate, epochs, batch_size, n_pat=10, early_stop=True):
         #... (similar to original implementation, using class methods)
         m = X.shape[0]
         losses = []
@@ -134,39 +154,51 @@ class NeuralNetwork:
                 # a2 = activations[-1]
                 # loss = -np.mean(y_batch * np.log(a2) + (1 - y_batch) * np.log(1 - a2))
                 a4 = activations[-1]
-                loss = self.compute_loss(a4, y_batch.reshape(1,-1))
+                loss = self.compute_loss(a4, y_batch.reshape(a4.shape))
                 losses.append(loss)
                 # logprobs = np.dot(y_batch.reshape(1,-1),np.log(a4))+np.dot((1-y_batch.reshape(1,-1)),np.log(1-a4)) 
                 # loss = -logprobs / m
             
                 gradients = self.backpropagation(X_batch, y_batch, activations)
-                self.update_weights(gradients, learning_rate)
-            # test the model on validation set
-            threshold = np.arange(0.1, 1, 0.1)
-            y_pred = [(self.forward_propagation(X_v)[-1].squeeze() > thres).astype(int) for thres in threshold]
-            f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
-            accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
-           
-            # early stopping
-            if np.max(f1s[-1]) > best_f1:
-                best_f1 = np.max(f1s[-1])
-                best_threshold = threshold[np.argmax(f1s[-1])]
-                self.network[-1]["best_threshold"] = best_threshold
-                self.network[-1]["best_f1"] = best_f1
-                num_epochs_without_improvement = 0
-                best_network = self.network.copy()
+                if self.adam:
+                    self.update_weights_adam(gradients, learning_rate, epoch+1)
+                else:
+                    self.update_weights(gradients, learning_rate)
+                    
+            
+            if early_stop:
+                # test the model on validation set
+                threshold = np.arange(0.1, 1, 0.1)
+                y_pred = [(self.forward_propagation(X_v)[-1].squeeze() > thres).astype(int) for thres in threshold]
+                f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
+                accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
+            
+                # early stopping
+                if np.max(f1s[-1]) > best_f1:
+                    best_f1 = np.max(f1s[-1])
+                    best_threshold = threshold[np.argmax(f1s[-1])]
+                    self.network[-1]["best_threshold"] = best_threshold
+                    self.network[-1]["best_f1"] = best_f1
+                    num_epochs_without_improvement = 0
+                    best_network = self.network.copy()
+                else:
+                    num_epochs_without_improvement += 1
+                    if num_epochs_without_improvement > patience:
+                        print("Early stopping at epoch", epoch)
+                        self.network = best_network
+                        break
+                # print index every 2 epochs
+                if epoch % 2 == 0:  # print loss every 100 epochs
+                    print("Epoch:", epoch, "Loss:", loss, "Validation F1:", f1s[-1], "Validation Acc:", accs[-1])
             else:
-                num_epochs_without_improvement += 1
-                if num_epochs_without_improvement > patience:
-                    print("Early stopping at epoch", epoch)
-                    self.network = best_network
-                    break
-            # print index every 2 epochs
-            if epoch % 2 == 0:  # print loss every 100 epochs
-                print("Epoch:", epoch, "Loss:", loss, "Validation F1:", f1s[-1], "Validation Acc:", accs[-1])
-                
-    
+                if epoch % 2 == 0:  # print loss every 100 epochs
+                    print("Epoch:", epoch, "Loss:", loss)
+            
         return best_network, losses
         
     def predict(self, X):
         return (np.squeeze(self.forward_propagation(X)[-1]) > 0.5).astype(int)
+    
+    def get_feature(self, X, num_layer):
+        """return the feature using autoencoder"""
+        return self.forward_propagation(X)[num_layer]
