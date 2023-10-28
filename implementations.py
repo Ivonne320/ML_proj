@@ -56,10 +56,11 @@ def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
     """
     # initialize w
     w = initial_w
+    loss = compute_mse(y, tx, w)
     for n_iter in range(max_iters):
         gradient = compute_gradient(y, tx, w)
-        loss = compute_mse(y, tx, w)
         w = w - gamma * gradient
+        loss = compute_mse(y, tx, w)
         print(
             "GD iter. {bi}/{ti}: loss={l}".format(
                 bi=n_iter, ti=max_iters - 1, l=loss
@@ -112,9 +113,8 @@ def compute_stoch_gradient(y, tx, w):
         e = minibatch_y - minibatch_tx.dot(w)
         gradient = -1/len(minibatch_y) * minibatch_tx.T.dot(e)
         gradients.append(gradient)
-        mse = compute_mse(minibatch_y, minibatch_tx, w)
     avg_gradient = np.mean(gradients, axis=0)
-    return avg_gradient,mse
+    return avg_gradient
  
 
 """ a function used to perform mse stochastic gradient descent."""
@@ -134,11 +134,11 @@ def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
         w: the last weight vector of the method
     """
     w = initial_w
-
+    loss = compute_mse(y, tx, w)
     for n_iter in range(max_iters):
-        gradient,loss = compute_stoch_gradient(y, tx, w)
+        gradient = compute_stoch_gradient(y, tx, w)
         w = w - gamma * gradient
-
+        loss = compute_mse(y, tx, w)
         print(
             "SGD iter. {bi}/{ti}: loss={l}, w0={w0}, w1={w1}".format(
                 bi=n_iter, ti=max_iters - 1, l=loss, w0=w[0], w1=w[1]
