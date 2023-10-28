@@ -247,7 +247,7 @@ def log_likely_gradient(y, tx, w):
     return gradient
 
 """ a function used to perform logistic regression using gradient descent."""
-def logistic_regression(y, tx, initial_w, max_iters, gamma):
+def logistic_regression(y, tx, y_v, tx_v, initial_w, max_iters, gamma):
     """implement logistic regression using gradient descent.
 
     Args:
@@ -275,7 +275,7 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
 
 
 """ a function used to perform regularized logistic regression using gradient descent. regularization term is L2."""
-def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma, verbose=False):
+def reg_logistic_regression(y, tx, y_v, tx_v, lambda_, initial_w, max_iters, gamma, n_pat=20):
     """implement regularized logistic regression using gradient descent.
 
     Args:
@@ -291,17 +291,38 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma, verbose
         loss: negative log likelyhood cost.
     """
     w = initial_w
+    best_weight = initial_w
+    losses = []
+    f1s = []
+    accs = []
+    best_f1 = -np.inf
+    num_epochs_without_improvement = 0
+    patience = n_pat
     for n_iter in range(max_iters):
         gradient = log_likely_gradient(y, tx, w) + 2 * lambda_ * w
         loss = log_likely_loss(y, tx, w)
         w = w - gamma * gradient
-        if verbose:
-            print(
-                "GD iter. {bi}/{ti}: loss={l}".format(
-                    bi=n_iter, ti=max_iters - 1, l=loss
-                )
-            )
-    return w, loss
+
+        losses.append(loss)
+        # test the model on validation set
+        threshold = np.arange(0.1, 1, 0.1)
+        y_pred = [(tx_v @ w > thres).astype(int) for thres in threshold]
+        f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
+        accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
+        # early stopping
+        if np.max(f1s[-1]) > best_f1:
+            best_f1 = np.max(f1s[-1])
+            best_threshold = threshold[np.argmax(f1s[-1])]
+            num_epochs_without_improvement = 0
+            best_weight = w.copy()
+        else:
+            num_epochs_without_improvement += 1
+            if num_epochs_without_improvement > patience:
+                print("Early stopping at iteration ", n_iter)
+                w = best_weight
+                break
+
+    return w, losses, best_f1, best_threshold
 
 def hinge_loss(y, tx, w, lambda_=0.1):
     """Compute the hinge loss.
@@ -349,7 +370,7 @@ def hinge_predict(tx, w):
     pred[pred <= 0] = 0
     return pred
 
-def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1, n_pat=10):
+def hinge_regression(y, tx, y_v, tx_v, initial_w, max_iters, gamma, lambda_=0.1, n_pat=20):
     """implement hinge regression using subgradient descent.
     Args: 
         y: numpy array of shape (N,), N is the number of samples.
@@ -363,39 +384,37 @@ def hinge_regression(y, tx, initial_w, max_iters, gamma, lambda_=0.1, n_pat=10):
         loss: hinge loss."""
     w = initial_w
     best_weight = initial_w
+    losses = []
     f1s = []
     accs = []
-    losses = []
     best_f1 = -np.inf
-    num_early_stopping = 0
+    num_epochs_without_improvement = 0
+    patience = n_pat
     for n_iter in range(max_iters):
         gradient = hinge_gradient(y, tx, w, lambda_)
         loss = hinge_loss(y, tx, w, lambda_)
         w = w - gamma * gradient
-        # if n_iter % 50 == 0:
-        #     print(
-        #         "GD iter. {bi}/{ti}: loss={l}".format(
-        #             bi=n_iter, ti=max_iters - 1, l=loss
-        #         )
-        #     )
-        threshold = np.arange(0.1, 1, 0.1)
-        y_pred = [(x_v @ w > thres).astype(int) for thres in threshold]
-        f1s.append([predict_f1_pure(pred, y_v) for pred in y_pred])
-        accs.append([predict_acc_pure(pred, y_v) for pred in y_pred])
+
         losses.append(loss)
+        # test the model on validation set
+        threshold = np.arange(0.2, 2, 0.2)
+        y_pred = [(tx_v @ w > thres).astype(int) for thres in threshold]
+        f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
+        accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
         # early stopping
         if np.max(f1s[-1]) > best_f1:
             best_f1 = np.max(f1s[-1])
-            best_threshold = np.argmax(f1s[-1])
+            best_threshold = threshold[np.argmax(f1s[-1])]
+            num_epochs_without_improvement = 0
             best_weight = w.copy()
-            num_early_stopping = 0
         else:
-            num_early_stopping += 1
-            if num_early_stopping > n_pat:
+            num_epochs_without_improvement += 1
+            if num_epochs_without_improvement > patience:
+                print("Early stopping at iteration ", n_iter)
                 w = best_weight
                 break
 
-    return w, losses
+    return w, losses, best_f1, best_threshold
 
 
 
@@ -511,7 +530,7 @@ def fillna(tx, cate_indices):
             x[np.isnan(x[:, feature]), feature] = majority
     return x
 
-def one_hot_encoding(tx, cate_indices):
+def one_hot_encoding(tx, test_x, cate_indices):
     """one-hot encoding for categorical features.
     Args:
         tx: numpy array of shape (N,D), N is the number of samples, D is number of features
@@ -520,11 +539,13 @@ def one_hot_encoding(tx, cate_indices):
         numpy array containing the data, with categorical features one-hot encoded.
     """
     # get the indices of non-categorical features
-    non_cate_indices = np.delete(np.arange(tx.shape[1]), cate_indices)
+    split = tx.shape[0]
+    new_x = np.vstack((tx, test_x))
+    non_cate_indices = np.delete(np.arange(new_x.shape[1]), cate_indices)
     # get the non-categorical features
-    non_cate = tx[:, non_cate_indices]
+    non_cate = new_x[:, non_cate_indices]
     # get the categorical features
-    cate = tx[:, cate_indices]
+    cate = new_x[:, cate_indices]
     # one-hot encoding
     new_cate = []
     for feature in range(cate.shape[1]):
@@ -535,7 +556,7 @@ def one_hot_encoding(tx, cate_indices):
     # concatenate the features
     new_cate = np.array(new_cate).T
     x = np.hstack((non_cate, new_cate))
-    return x
+    return x[:split], x[split:]
 
 def standardize(tx):
     """z-score standardization
@@ -548,6 +569,7 @@ def standardize(tx):
     # for training set:
     mean = tx.mean(axis=0)
     std = tx.std(axis=0)
+    std[std==0] = 1
     x = np.copy(tx)
     x = (x - mean) / std
     return x, mean, std
@@ -609,8 +631,8 @@ def predict_f1_pure(y_pred, y_val):
     tp = np.sum((y_pred == 1) & (y_val == 1))
     fp = np.sum((y_pred == 1) & (y_val != 1))
     fn = np.sum((y_pred != 1) & (y_val == 1))
-    precision = tp / (tp + fp)
-    recall = tp / (tp + fn)
+    precision = tp / (tp + fp + 1e-7)
+    recall = tp / (tp + fn + 1e-7)
     f1 = 2 * (precision * recall) / (precision + recall)
     # print("The F1 score is: %.4f"%f1)
     # print("The precision is: %.4f"%precision)
@@ -627,7 +649,7 @@ def pca(x, num_components):
         output: numpy array containing the data, with missing values replaced with mean.
     """
     # standardize the data
-    x = standardize(x)
+    x, _, _ = standardize(x)
     # calculate covariance matrix
     cov = np.cov(x.T)
     # calculate eigenvalues and eigenvectors

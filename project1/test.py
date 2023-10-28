@@ -8,9 +8,12 @@ from optuna.samplers import CmaEsSampler
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
 from sklearn import metrics
-from network import *
+# from network import *
+import datetime
 
 PCA = True
+HINGE = True
+np.random.seed(10)
 # x_train, x_test, y_train, train_ids, test_ids = load_csv_data_new("/home/zewzhang/Course/ML/ML_course/projects/project1/data/dataset_to_release", sub_sample=True, num=20000)
 x_train, x_test, y_train, train_ids, test_ids = load_csv_data("/home/zewzhang/Course/ML/ML_course/projects/project1/data/dataset_to_release", sub_sample=True)
 
@@ -36,8 +39,7 @@ def data_processing(x_train, y_train, row_nan, feature_nan, z_threshold, feature
     x_train_processed = fillna(x_train_processed, cat_indices)
     x_test_processed = fillna(x_test_processed, cat_indices)
     # One hot encoding for categorical features
-    x_train_processed = one_hot_encoding(x_train_processed, cat_indices)
-    x_test_processed = one_hot_encoding(x_test_processed, cat_indices)
+    x_train_processed, x_test_processed = one_hot_encoding(x_train_processed, x_test_processed, cat_indices)
     x_train_processed, train_mean, train_std = standardize(x_train_processed)
     x_test_processed = (x_test_processed - train_mean) / train_std
     x_train_processed, y_train_processed = z_outlier_removal(x_train_processed, y_train_processed, z_threshold, feature_threshold)
@@ -47,15 +49,14 @@ def data_processing(x_train, y_train, row_nan, feature_nan, z_threshold, feature
 def objective_hinge(trial):
     global x_train, x_test, y_train, train_ids, test_ids
     lambda_ = trial.suggest_float('lambda_', 5e-3, 5)
-    thres = trial.suggest_float('thres', 0.5, 2)
     n_com = trial.suggest_int('n_com', 10, 200)
     gamma = trial.suggest_float('gamma', 0.001, 0.2)
-    row_nan = trial.suggest_float('row_nan', 0.3, 0.7)
-    feature_nan = trial.suggest_float('feature_nan', 0.5, 0.7)
+    row_nan = 0.5
+    feature_nan = 0.2
     z_threshold = trial.suggest_float('z_threshold', 1.8, 2.5)
     feature_threshold = trial.suggest_float('feature_threshold', 0.1, 0.3)
 
-    pre_train_data, y_train_processed, x_test_processed = data_processing(x_train, y_train, row_nan, feature_nan, z_threshold, feature_threshold, x_test)
+    pre_train_data, y_train_processed, _ = data_processing(x_train, y_train, row_nan, feature_nan, z_threshold, feature_threshold, x_test)
     if PCA:
         x_pca, eig_vec, eig_val,weight = pca(pre_train_data, n_com)
         x_pca = np.real(x_pca)
@@ -63,7 +64,6 @@ def objective_hinge(trial):
         sub_x, sub_y = split_cross_validation(x_pca_t, y_train_processed, 5)
     else:
         sub_x, sub_y = split_cross_validation(pre_train_data, y_train_processed, 5)
-    accs = []
     f1s = []
     losss = []
     # cross-validation
@@ -74,20 +74,19 @@ def objective_hinge(trial):
         x_t, y_t = np.vstack(sub_cur_x), np.hstack(sub_cur_y)
         x_t, y_t = data_augmentation(x_t, y_t)
         initial_w = np.random.randn(x_t.shape[1]) * 0.01
-        w, loss = hinge_regression(y_t, x_t, initial_w, lambda_=lambda_, max_iters=250, gamma=gamma)
-        y_pred = ((x_v @ w) > thres).astype(int)
-        accs.append(predict_acc_pure(y_pred, y_v))
-        f1s.append(predict_f1_pure(y_pred, y_v))
-        losss.append(loss)
-    print("Average accuracy score is: ", np.mean(accs))
+        w, loss, best_f1, best_threshold = hinge_regression(y_t, x_t, y_v, x_v, initial_w, lambda_=lambda_, max_iters=500, gamma=gamma)
+
+        f1s.append(best_f1)
+        losss.append(loss[-1])
+
     print("Average f1 score is: ", np.mean(f1s))
     print("Average loss is: ", np.mean(losss))
+
     return np.mean(f1s)
 
 def objective_log(trial):
     global x_train, x_test, y_train, train_ids, test_ids
     lambda_ = trial.suggest_float('lambda_', 5e-3, 2)
-    thres = trial.suggest_float('thres', 0.5, 0.9)
     n_com = trial.suggest_int('n_com', 10, 200)
     gamma = trial.suggest_float('gamma', 0.001, 0.2)
     # row_nan = trial.suggest_float('row_nan', 0.5, 0.7)
@@ -117,21 +116,21 @@ def objective_log(trial):
         x_t, y_t = data_augmentation(x_t, y_t)
         initial_w = np.random.randn(x_t.shape[1]) * 0.01
         # w, loss = logistic_regression(y_t, x_t, initial_w, max_iters=200, gamma=gamma)
-        w, loss = reg_logistic_regression(y_t, x_t, lambda_=lambda_, initial_w=initial_w, max_iters=250, gamma=gamma, verbose=False)
-        y_pred = ((x_v @ w) > thres).astype(int)
-        accs.append(predict_acc_pure(y_pred, y_v))
-        f1s.append(predict_f1_pure(y_pred, y_v))
-        losss.append(loss)
-    print("Average accuracy score is: ", np.mean(accs))
+        w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, x_t, y_v, x_v, lambda_=lambda_, initial_w=initial_w, max_iters=500, gamma=gamma)
+
+        f1s.append(best_f1)
+        losss.append(loss[-1])
+
     print("Average f1 score is: ", np.mean(f1s))
-    print("Average loss is: ", np.mean(losss))
+    print("Average loss is: ", loss[-1])
+
     return np.mean(f1s)
 
 
 def create_model(study):
-    x_train1, x_test1, y_train1, train_ids1, test_ids1 = load_csv_data_new("/home/zewzhang/Course/ML/ML_course/projects/project1/data/dataset_to_release", sub_sample=False, num=25000)
+    model = {}
+    x_train1, x_test1, y_train1, _, _ = load_csv_data_new("/home/zewzhang/Course/ML/ML_course/projects/project1/data/dataset_to_release", sub_sample=False, num=25000)
     lambda_ = study.best_params['lambda_']
-    thres = study.best_params['thres']
     n_com = study.best_params['n_com']
     gamma = study.best_params['gamma']
     row_nan = 0.5
@@ -145,15 +144,39 @@ def create_model(study):
         x_pca = add_bias(np.real(x_pca))
         x_test_processed = x_test_processed @ eig_vec  
         x_test_processed = add_bias(np.real(x_test_processed))
-        initial_w = np.random.randn(x_pca.shape[1]) * 0.01
-        x_pca, y_train_processed = data_augmentation(x_pca, y_train_processed)
-        w, loss = reg_logistic_regression(y_train_processed, x_pca, lambda_=lambda_, initial_w=initial_w, max_iters=50, gamma=gamma, verbose=True)
+
+        sub_x, sub_y = split_cross_validation(x_pca, y_train_processed, 5)
+        sub_cur_x = sub_x.copy()
+        sub_cur_y = sub_y.copy()
+        x_v, y_v = sub_cur_x.pop(1), sub_cur_y.pop(1)
+        x_t, y_t = np.vstack(sub_cur_x), np.hstack(sub_cur_y)  
+
+        initial_w = np.random.randn(x_t.shape[1]) * 0.01
+        x_t, y_t = data_augmentation(x_t, y_t)
+        if HINGE: 
+            w, loss, best_f1, best_threshold = hinge_regression(y_t, x_t, y_v, x_v, initial_w, lambda_=lambda_, max_iters=500, gamma=gamma)
+        else:
+            w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, x_t, y_v, x_v, lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
     else:
         initial_w = np.random.randn(pre_train_data.shape[1]) * 0.01
         pre_train_data = add_bias(pre_train_data)
+
+        sub_x, sub_y = split_cross_validation(pre_train_data, y_train_processed, 5)
+        sub_cur_x = sub_x.copy()
+        sub_cur_y = sub_y.copy()
+        x_v, y_v = sub_cur_x.pop(1), sub_cur_y.pop(1)
+        x_t, y_t = np.vstack(sub_cur_x), np.hstack(sub_cur_y)  
+
         pre_train_data = data_augmentation(pre_train_data)
-        w, loss = reg_logistic_regression(y_train_processed, pre_train_data, lambda_=lambda_, initial_w=initial_w, max_iters=50, gamma=gamma, verbose=True)
-    y_pred = ((x_test_processed @ w) > thres).astype(int)
+        if HINGE: 
+            w, loss, best_f1, best_threshold = hinge_regression(y_t, x_t, y_v, x_v, initial_w, lambda_=lambda_, max_iters=500, gamma=gamma)
+        else:
+            w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, x_t, y_v, x_v, lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
+    model = dict(PCA=PCA, HINGE=HINGE, w=w, best_f1=best_f1, best_threshold=best_threshold, losses=loss)
+    model_name = "./model_{}".format(datetime.datetime.now().strftime("%m%d%Y_%H_%M_%S"))
+    np.savez(model_name, model)
+    print('best F1 score is: ', best_f1)
+    y_pred = ((x_test_processed @ w) > best_threshold).astype(int)
     y_pred[y_pred == 0] = -1
 
     return y_pred
@@ -181,7 +204,10 @@ def main():
 
     sampler = optuna.samplers.TPESampler(multivariate=True, n_ei_candidates=50)
     study = optuna.create_study(direction='maximize', sampler=sampler)
-    study.optimize(objective_log, n_trials=100)
+    if HINGE:
+        study.optimize(objective_hinge, n_trials=100)
+    else:
+        study.optimize(objective_log, n_trials=100)
     print(study.best_trial)
 
     return study
