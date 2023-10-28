@@ -39,7 +39,7 @@ def compute_gradient(y, tx, w):
 
 """ a function used to perform mean squared error gradient descent."""
 
-def mean_square_error_gd(y, tx, initial_w, max_iters, gamma):
+def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
     """The Gradient Descent (GD) algorithm.
 
     Args:
@@ -118,7 +118,7 @@ def compute_stoch_gradient(y, tx, w):
  
 
 """ a function used to perform mse stochastic gradient descent."""
-def stochastic_gradient_descent(y, tx, initial_w, batch_size, max_iters, gamma):
+def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
     """The Stochastic Gradient Descent algorithm (SGD).
 
     Args:
