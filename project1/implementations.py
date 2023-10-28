@@ -514,6 +514,25 @@ def one_hot_encoding(tx,test_x, cate_indices):
     x = np.hstack((non_cate, new_cate))
     return x[:split], x[split:]
 
+def normalization(tx, max_=None, min_=None):
+    """normalization
+    Args:
+        x: numpy array of shape (N,D), N is the number of samples, D is number of features        
+    Returns:
+        output: normalized data, range from 0 to 1
+
+    """
+    if max_ is None or min_ is None:
+        # for training set:
+        max_ = tx.max(axis=0)
+        min_ = tx.min(axis=0)
+    x = np.copy(tx)
+    indices = np.where(max_ == min_)[0]
+    max_[indices] = 1
+    min_[indices] = 0
+    x = (x - min_) / (max_ - min_)
+    return x, max_, min_
+
 def standardize(tx):
     """z-score standardization
     Args:
@@ -704,6 +723,7 @@ def split_cross_validation(x, y, slots = 10):
     """
     # shuffle the data
     indices = np.arange(len(y))
+    np.random.seed(1)
     np.random.shuffle(indices)
     x = x[indices]
     y = y[indices]
@@ -715,8 +735,8 @@ def split_cross_validation(x, y, slots = 10):
     for i in range(slots-1):
         sub_x.append(x[i*split:(i+1)*split])
         sub_y.append(y[i*split:(i+1)*split])
-    sub_x.append([x[(slots-1)*split:]])
-    sub_y.append([y[(slots-1)*split:]])
+    sub_x.append(x[(slots-1)*split:])
+    sub_y.append(y[(slots-1)*split:])
     return sub_x, sub_y
    
 

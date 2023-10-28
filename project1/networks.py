@@ -12,9 +12,9 @@ def predict_f1_pure(y_pred, y_val):
     tp = np.sum((y_pred == 1) & (y_val == 1))
     fp = np.sum((y_pred == 1) & (y_val != 1))
     fn = np.sum((y_pred != 1) & (y_val == 1))
-    precision = tp / (tp + fp)
-    recall = tp / (tp + fn)
-    f1 = 2 * (precision * recall) / (precision + recall)
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
     # print("The F1 score is: %.4f"%f1)
     # print("The precision is: %.4f"%precision)
     # print("The recall is: %.4f"%recall)
@@ -137,6 +137,7 @@ class NeuralNetwork:
         best_f1 = -np.inf
         num_epochs_without_improvement = 0
         patience = n_pat
+        best_network = self.network.copy()
         for epoch in range(epochs):
             indices = np.arange(m)
             np.random.shuffle(indices)
