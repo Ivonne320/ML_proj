@@ -740,9 +740,9 @@ def pca(x, num_components):
         output: numpy array containing the data, with missing values replaced with mean.
     """
     # standardize the data
-    x, _, _ = standardize(x)
+    x_stad, _, _ = standardize(x.copy())
     # calculate covariance matrix
-    cov = np.cov(x.T)
+    cov = np.cov(x_stad.T)
     # calculate eigenvalues and eigenvectors
     eig_val, eig_vec = np.linalg.eig(cov)
     weight = eig_val / np.sum(eig_val)
