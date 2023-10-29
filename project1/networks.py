@@ -28,6 +28,8 @@ class NeuralNetwork:
         self.network = self.initialize_network(layer_sizes)
         self.output_activation = output_activation
         self.loss_function = loss_function
+        self.seed = 20
+        np.random.seed(self.seed)
 
         
     @staticmethod
@@ -131,13 +133,15 @@ class NeuralNetwork:
             layer['b'] -= learning_rate * gradient['db']
 
 
-    def train(self, X, y, X_v, y_v, learning_rate, epochs, batch_size, n_pat=10, early_stop=True):
+    def train(self, X, y, X_v=None, y_v=None, learning_rate=0.01, epochs=100, batch_size=2048, n_pat=10, early_stop=True):
         #... (similar to original implementation, using class methods)
         m = X.shape[0]
         losses = []
+        v_losses = []
         f1s = []
         accs = []
         best_f1 = -np.inf
+        best_loss = np.inf
         num_epochs_without_improvement = 0
         patience = n_pat
         for epoch in range(epochs):
@@ -166,35 +170,54 @@ class NeuralNetwork:
                     self.update_weights(gradients, learning_rate)
                     
             
-            if early_stop:
+            if early_stop and X_v is not None and y_v is not None:
                 # test the model on validation set
-                threshold = np.arange(0.1, 1, 0.1)
-                y_pred = [(self.forward_propagation(X_v)[-1].squeeze() > thres).astype(int) for thres in threshold]
-                f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
-                accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
-            
-                # early stopping
-                if np.max(f1s[-1]) > best_f1:
-                    best_f1 = np.max(f1s[-1])
-                    best_threshold = threshold[np.argmax(f1s[-1])]
-                    self.network[-1]["best_threshold"] = best_threshold
-                    self.network[-1]["best_f1"] = best_f1
-                    num_epochs_without_improvement = 0
-                    best_network = self.network.copy()
-                else:
-                    num_epochs_without_improvement += 1
-                    if num_epochs_without_improvement > patience:
-                        print("Early stopping at epoch", epoch)
-                        self.network = best_network
-                        break
-                # print index every 2 epochs
-                if epoch % 2 == 0:  # print loss every 100 epochs
-                    print("Epoch:", epoch, "Loss:", loss, "Validation F1:", f1s[-1], "Validation Acc:", accs[-1])
+                if self.loss_function == 'bce':
+                    threshold = np.arange(0.1, 1, 0.1)
+                    y_pred = [(self.forward_propagation(X_v)[-1].squeeze() > thres).astype(int) for thres in threshold]
+                    f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
+                    accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
+
+                    # early stopping
+                    if np.max(f1s[-1]) > best_f1:
+                        best_f1 = np.max(f1s[-1])
+                        best_threshold = threshold[np.argmax(f1s[-1])]
+                        self.network[-1]["best_threshold"] = best_threshold
+                        self.network[-1]["best_f1"] = best_f1
+                        num_epochs_without_improvement = 0
+                        best_network = self.network.copy()
+                    else:
+                        num_epochs_without_improvement += 1
+                        if num_epochs_without_improvement > patience:
+                            print("Early stopping at epoch", epoch)
+                            self.network = best_network
+                            break
+                    # print index every 2 epochs
+                    if epoch % 2 == 0:  # print loss every 100 epochs
+                        print("Epoch:", epoch, "Loss:", loss, "Validation F1:", f1s[-1], "Validation Acc:", accs[-1])
+
+                elif self.loss_function == 'mse':
+                    output_v = self.get_output(X_v)
+                    loss_v = self.compute_loss(output_v, y_v.reshape(output_v.shape))
+                    v_losses.append(loss_v)
+                    if loss_v < best_loss:
+                        best_loss = loss_v
+                        num_epochs_without_improvement = 0
+                        best_network = self.network.copy()
+                    else:
+                        num_epochs_without_improvement += 1
+                        if num_epochs_without_improvement > patience:
+                            print("Early stopping at epoch", epoch)
+                            self.network = best_network
+                            break
+                    if epoch % 2 == 0:  # print loss every 100 epochs
+                        print("Epoch:", epoch, "Loss:", loss, "Validation Loss:", loss_v)
+
             else:
                 if epoch % 2 == 0:  # print loss every 100 epochs
                     print("Epoch:", epoch, "Loss:", loss)
             
-        return best_network, losses
+        return self.network, losses, v_losses
         
     def predict(self, X):
         return (np.squeeze(self.forward_propagation(X)[-1]) > 0.5).astype(int)
@@ -202,3 +225,7 @@ class NeuralNetwork:
     def get_feature(self, X, num_layer):
         """return the feature using autoencoder"""
         return self.forward_propagation(X)[num_layer]
+    
+    def get_output(self, X):
+        """return the output of the network"""
+        return self.forward_propagation(X)[-1]

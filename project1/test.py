@@ -140,9 +140,8 @@ def create_model(study):
     pre_train_data, y_train_processed, x_test_processed = data_processing(x_train1, y_train1, row_nan, feature_nan, z_threshold, feature_threshold, x_test1)
     if PCA:
         x_pca, eig_vec, _, _ = pca(pre_train_data, n_com)
-        x_pca = add_bias(np.real(x_pca))
-        x_test_processed = x_test_processed @ eig_vec  
-        x_test_processed = add_bias(np.real(x_test_processed))
+        x_pca = np.real(x_pca)
+        x_test_processed = np.real(x_test_processed @ eig_vec)
 
         sub_x, sub_y = split_cross_validation(x_pca, y_train_processed, 5)
         sub_cur_x = sub_x.copy()
@@ -155,22 +154,21 @@ def create_model(study):
         if HINGE: 
             w, loss, best_f1, best_threshold = hinge_regression(y_t, x_t, y_v, x_v, initial_w, lambda_=lambda_, max_iters=500, gamma=gamma)
         else:
-            w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, x_t, y_v, x_v, lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
+            w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, add_bias(x_t), y_v, add_bias(x_v), lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
     else:
         initial_w = np.random.randn(pre_train_data.shape[1]) * 0.01
-        pre_train_data = add_bias(pre_train_data)
-
         sub_x, sub_y = split_cross_validation(pre_train_data, y_train_processed, 5)
         sub_cur_x = sub_x.copy()
         sub_cur_y = sub_y.copy()
         x_v, y_v = sub_cur_x.pop(1), sub_cur_y.pop(1)
         x_t, y_t = np.vstack(sub_cur_x), np.hstack(sub_cur_y)  
+        x_t, y_t = data_augmentation(pre_train_data, y_train_processed)
 
-        pre_train_data = data_augmentation(pre_train_data)
         if HINGE: 
             w, loss, best_f1, best_threshold = hinge_regression(y_t, x_t, y_v, x_v, initial_w, lambda_=lambda_, max_iters=500, gamma=gamma)
         else:
-            w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, x_t, y_v, x_v, lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
+            w, loss, best_f1, best_threshold = reg_logistic_regression(y_t, add_bias(x_t), y_v, add_bias(x_v), lambda_=lambda_, initial_w=initial_w, max_iters=200, gamma=gamma)
+
     model = dict(PCA=PCA, HINGE=HINGE, w=w, best_f1=best_f1, best_threshold=best_threshold, losses=loss, 
                  lambda_=lambda_, n_com=n_com, gamma=gamma)
     model_name = "./model_{}".format(datetime.datetime.now().strftime("%m%d%Y_%H_%M_%S"))
