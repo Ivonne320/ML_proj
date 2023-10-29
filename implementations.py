@@ -203,6 +203,7 @@ def ridge_regression_var(y, tx, y_v, tx_v, lambda_):
     f1s = []
     accs = []
     best_f1 = -np.inf
+    best_acc = -np.inf
     best_threshold = 0
 
     N,D = tx.shape
@@ -214,9 +215,10 @@ def ridge_regression_var(y, tx, y_v, tx_v, lambda_):
     f1s = [predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))]
     accs = [predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))]
     best_f1 = np.max(f1s[-1])
+    best_acc = np.max(accs[-1])
     best_threshold = threshold[np.argmax(f1s[-1])]
 
-    return w, loss, best_f1, best_threshold
+    return w, loss, best_f1, best_acc, best_threshold
 
 
 def sigmoid(t):
@@ -346,6 +348,7 @@ def reg_logistic_regression_var(y, tx, y_v, tx_v, lambda_, initial_w, max_iters,
     f1s = []
     accs = []
     best_f1 = -np.inf
+    best_acc = -np.inf
     best_threshold = 0
     num_epochs_without_improvement = 0
     patience = n_pat
@@ -364,6 +367,7 @@ def reg_logistic_regression_var(y, tx, y_v, tx_v, lambda_, initial_w, max_iters,
         # early stopping
         if np.max(f1s[-1]) > best_f1:
             best_f1 = np.max(f1s[-1])
+            best_acc = np.max(accs[-1])
             best_threshold = threshold[np.argmax(f1s[-1])]
             num_epochs_without_improvement = 0
             best_weight = w.copy()
@@ -374,7 +378,7 @@ def reg_logistic_regression_var(y, tx, y_v, tx_v, lambda_, initial_w, max_iters,
                 w = best_weight
                 break
 
-    return w, losses, best_f1, best_threshold
+    return w, losses, best_f1, best_acc, best_threshold
 
 def hinge_loss(y, tx, w, lambda_=0.1):
     """Compute the hinge loss.
@@ -441,6 +445,7 @@ def hinge_regression(y, tx, y_v, tx_v, initial_w, max_iters, gamma, lambda_=0.1,
     f1s = []
     accs = []
     best_f1 = -np.inf
+    best_acc = -np.inf
     num_epochs_without_improvement = 0
     patience = n_pat
     y[y==0] = -1
@@ -454,11 +459,13 @@ def hinge_regression(y, tx, y_v, tx_v, initial_w, max_iters, gamma, lambda_=0.1,
         # test the model on validation set
         threshold = np.arange(0.2, 2, 0.2)
         y_pred = [(tx_v @ w > thres).astype(int) for thres in threshold]
+        y_pred[y_pred==0] = -1
         f1s.append([predict_f1_pure(y_pred[i], y_v) for i in range(len(threshold))])
         accs.append([predict_acc_pure(y_pred[i], y_v) for i in range(len(threshold))])
         # early stopping
         if np.max(f1s[-1]) > best_f1:
             best_f1 = np.max(f1s[-1])
+            best_acc = np.max(accs[-1])
             best_threshold = threshold[np.argmax(f1s[-1])]
             num_epochs_without_improvement = 0
             best_weight = w.copy()
@@ -469,7 +476,7 @@ def hinge_regression(y, tx, y_v, tx_v, initial_w, max_iters, gamma, lambda_=0.1,
                 w = best_weight
                 break
 
-    return w, losses, best_f1, best_threshold
+    return w, losses, best_f1, best_acc, best_threshold
 
 
 ################################
@@ -683,7 +690,7 @@ def data_augmentation(x, y):
     neg_num = len(neg_indices)
 
     # get the number of samples to add
-    add_num = (pos_num - neg_num) * 2
+    add_num = (pos_num - neg_num) * 1
 
     # get the indices of the samples to add
     if add_num > 0:
@@ -822,7 +829,6 @@ def predict_acc_pure(y_pred, y_val):
 
 # calculate F1 score
 def predict_f1_pure(y_pred, y_val):
-
     tp = np.sum((y_pred == 1) & (y_val == 1))
     fp = np.sum((y_pred == 1) & (y_val != 1))
     fn = np.sum((y_pred != 1) & (y_val == 1))
@@ -834,6 +840,11 @@ def predict_f1_pure(y_pred, y_val):
     # print("The recall is: %.4f"%recall)
     return np.clip(f1, 0, 1)
 
+# predict the labels based on the predicted probabilities
+def predict_labels(w, x_test, threshold):
+    y_pred = ((x_test @ w) > threshold).astype(int)
+    y_pred[y_pred == 0] = -1
+    return y_pred
 
 ################################
 # Hyperparameter tuning
@@ -854,7 +865,8 @@ class NeuralNetwork:
     def __init__(self, layer_sizes, output_activation='sigmoid', loss_function='bce', adam=False):
         # used for adam optimizer
         self.adam = adam
-        self.network = self.initialize_network(layer_sizes)
+        self.sizes = layer_sizes
+        self.network = self.initialize_network()
         self.output_activation = output_activation
         self.loss_function = loss_function
         # self.seed = 20
@@ -873,7 +885,7 @@ class NeuralNetwork:
     def relu_derivative(x):
         return np.where(x > 0, 1, 0)
 
-    def initialize_network(self, sizes):
+    def initialize_network(self):
         """initialize the weights and biases for the given network size; 
         initialize the momentum and velocity for adam optimizer if needed
         Returns:
@@ -882,15 +894,15 @@ class NeuralNetwork:
         if self.adam:
             self.mom = []
             self.v = []
-        for i in range(len(sizes) - 1):
+        for i in range(len(self.sizes) - 1):
             layer = {
-                'W': np.random.randn(sizes[i], sizes[i+1]) * np.sqrt(2./sizes[i]),
-                'b': np.zeros((1, sizes[i+1]))
+                'W': np.random.randn(self.sizes[i], self.sizes[i+1]) * np.sqrt(2./self.sizes[i]),
+                'b': np.zeros((1, self.sizes[i+1]))
             }
             network.append(layer)
             if self.adam:
-                self.mom.append(np.zeros((sizes[i], sizes[i+1])))
-                self.v.append(np.zeros((sizes[i], sizes[i+1])))
+                self.mom.append(np.zeros((self.sizes[i], self.sizes[i+1])))
+                self.v.append(np.zeros((self.sizes[i], self.sizes[i+1])))
         return network
 
     def forward_propagation(self, x):
@@ -1035,6 +1047,7 @@ class NeuralNetwork:
                     # early stopping
                     if np.max(f1s[-1]) > best_f1:
                         best_f1 = np.max(f1s[-1])
+                        best_accs = np.max(accs[-1])
                         best_threshold = threshold[np.argmax(f1s[-1])]
                         self.network[-1]["best_threshold"] = best_threshold
                         self.network[-1]["best_f1"] = best_f1
@@ -1045,7 +1058,7 @@ class NeuralNetwork:
                         if num_epochs_without_improvement > patience:
                             print("Early stopping at epoch", epoch)
                             self.network = best_network
-                            break
+                            return self.network, losses, best_f1, best_accs, best_threshold
                     # print index every 2 epochs
                     if epoch % 2 == 0:  # print loss every 100 epochs
                         print("Epoch:", epoch, "Loss:", loss, "Validation F1:", f1s[-1], "Validation Acc:", accs[-1])
@@ -1063,7 +1076,7 @@ class NeuralNetwork:
                         if num_epochs_without_improvement > patience:
                             print("Early stopping at epoch", epoch)
                             self.network = best_network
-                            break
+                            return self.network, losses, best_loss, best_threshold
                     if epoch % 2 == 0:  # print loss every 100 epochs
                         print("Epoch:", epoch, "Loss:", loss, "Validation Loss:", loss_v)
 
@@ -1071,11 +1084,13 @@ class NeuralNetwork:
                 if epoch % 2 == 0:  # print loss every 100 epochs
                     print("Epoch:", epoch, "Loss:", loss)
             
-        return self.network, losses, v_losses
+        return self.network, losses, best_loss
         
-    def predict(self, X):
+    def predict(self, X, threshold=0.5):
         """predict the labels using the output of the network"""
-        return (np.squeeze(self.forward_propagation(X)[-1]) > 0.5).astype(int)
+        y_pred = (np.squeeze(self.forward_propagation(X)[-1]) > threshold).astype(int)
+        y_pred[y_pred == 0] = -1
+        return y_pred
     
     def get_feature(self, X, num_layer):
         """return the feature using autoencoder"""
